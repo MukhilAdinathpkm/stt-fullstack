@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Speech → Text (Mic)</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; }
+    .row { display: flex; gap: .75rem; align-items: center; margin-bottom: 1rem; }
+    button { padding: .6rem 1rem; border-radius: 8px; }
+    textarea { width: 100%; height: 180px; }
+    .status { font-size: .95rem; opacity: .8; }
+  </style>
+</head>
+<body>
+  <h1>Speech → Text</h1>
+  <div class="row">
+    <button id="recordBtn">🎙️ Start Recording</button>
+    <button id="stopBtn" disabled>⏹️ Stop</button>
+    <span class="status" id="status">Idle</span>
+  </div>
+
+  <audio id="player" controls></audio>
+
+  <h3>Transcript</h3>
+  <textarea id="output" readonly></textarea>
+
+  <script>
+    const recordBtn = document.getElementById('recordBtn');
+    const stopBtn   = document.getElementById('stopBtn');
+    const statusEl  = document.getElementById('status');
+    const output    = document.getElementById('output');
+    const player    = document.getElementById('player');
+
+    let mediaRecorder;
+    let chunks = [];
+
+    function supportedMime() {
+      const mimes = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/ogg',
+        'audio/wav'
+      ];
+      return mimes.find(t => MediaRecorder.isTypeSupported(t)) || '';
+    }
+
+    recordBtn.onclick = async () => {
+      output.value = '';
+      chunks = [];
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mimeType = supportedMime();
+        mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+        mediaRecorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+        mediaRecorder.onstop = async () => {
+          const blob = new Blob(chunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+          player.src = URL.createObjectURL(blob);
+          statusEl.textContent = 'Uploading…';
+
+          const fd = new FormData();
+          // choose an extension that matches mimeType for better server decoding
+          const ext = blob.type.includes('ogg') ? 'ogg'
+                    : blob.type.includes('wav') ? 'wav'
+                    : 'webm';
+          fd.append('file', blob, `recording.${ext}`);
+
+          try {
+            const res = await fetch('/transcribe', { method: 'POST', body: fd });
+            const data = await res.json();
+            output.value = data.text || JSON.stringify(data, null, 2);
+            statusEl.textContent = 'Done';
+          } catch (err) {
+            statusEl.textContent = 'Error';
+            output.value = 'Error: ' + err;
+          }
+        };
+        mediaRecorder.start();
+        statusEl.textContent = 'Recording…';
+        recordBtn.disabled = true;
+        stopBtn.disabled = false;
+      } catch (e) {
+        statusEl.textContent = 'Mic permission denied or unavailable';
+        console.error(e);
+      }
+    };
+
+    stopBtn.onclick = () => {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+        recordBtn.disabled = false;
+        stopBtn.disabled = true;
+        statusEl.textContent = 'Processing…';
+      }
+    };
+  </script>
+</body>
+</html>
