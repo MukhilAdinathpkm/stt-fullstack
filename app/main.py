@@ -86,7 +86,7 @@ async def transcribe(file: UploadFile = File(...)):
         audio = audio.astype(np.float32)
 
         # Run ASR
-        result = get_asr(
+        result = get_asr()(
             {"array": audio, "sampling_rate": 16000},
             return_timestamps=False,
             generate_kwargs={"task": "transcribe", "language": "en"}  # set to your language if needed
