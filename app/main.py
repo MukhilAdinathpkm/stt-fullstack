@@ -1,4 +1,4 @@
-import io
+import io,threading
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from transformers import pipeline
@@ -22,11 +22,22 @@ app.add_middleware(
 )
 
 # Load the ASR pipeline once at startup
-asr = pipeline(
-    task="automatic-speech-recognition",
-    model=MODEL_ID,
-    device_map="auto",            # auto-select CPU/GPU
-)
+_asr = None
+_asr_lock = threading.Lock()
+
+def get_asr():
+    global _asr
+    if _asr is None:
+        with _asr_lock:
+            if _asr is None:
+                _asr = pipeline(
+                    task="automatic-speech-recognition",
+                    model=MODEL_ID,
+                    # remove device_map to avoid needing accelerate, or keep if you installed it
+                    device_map="auto",
+                    device=-1
+                )
+    return _asr
 
 @app.get("/health")
 def health():
@@ -75,7 +86,7 @@ async def transcribe(file: UploadFile = File(...)):
         audio = audio.astype(np.float32)
 
         # Run ASR
-        result = asr(
+        result = get_asr(
             {"array": audio, "sampling_rate": 16000},
             return_timestamps=False,
             generate_kwargs={"task": "transcribe", "language": "en"}  # set to your language if needed
